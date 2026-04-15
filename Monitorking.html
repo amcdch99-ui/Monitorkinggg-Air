@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Monitoring Kekeruhan Air</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- ICON -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial;
+      background: black;
+      color: white;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 10px;
+    }
+
+    video {
+      width: 95%;
+      max-width: 400px;
+      border-radius: 15px;
+    }
+
+    .status-box {
+      margin: 15px;
+      padding: 15px;
+      border-radius: 15px;
+      font-size: 22px;
+      font-weight: bold;
+      transition: 0.3s;
+    }
+
+    .jernih { background: green; }
+    .sedang { background: orange; }
+    .keruh  { background: red; }
+
+    .card {
+      margin: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.1);
+    }
+
+    button {
+      padding: 12px;
+      border: none;
+      border-radius: 15px;
+      background: #2196f3;
+      color: white;
+      font-size: 18px;
+      margin: 8px;
+      cursor: pointer;
+    }
+
+    button:active {
+      transform: scale(0.95);
+    }
+
+    /* Animasi pulse */
+    .pulse {
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(33,150,243, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(33,150,243, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(33,150,243, 0); }
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>📊 Monitoring Kekeruhan Air</h1>
+
+<video id="video" autoplay></video>
+<canvas id="canvas" style="display:none;"></canvas>
+
+<div id="statusBox" class="status-box">Status: -</div>
+
+<div class="card">
+  <h3 id="nilai">Nilai: -</h3>
+</div>
+
+<input type="file" accept="image/*" onchange="setBackground(event)">
+<br>
+
+<button id="btnStart" onclick="toggleCamera()" class="pulse">
+  <i class="fas fa-play"></i> Start
+</button>
+
+<button onclick="enableAudio()">🔊 Aktifkan Audio</button>
+
+<!-- 🔊 ALARM CUSTOM -->
+<audio id="alarm" preload="auto">
+  <source src="alarm.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const statusBox = document.getElementById("statusBox");
+const nilaiText = document.getElementById("nilai");
+
+const alarm = document.getElementById("alarm");
+const btn = document.getElementById("btnStart");
+
+let stream = null;
+let running = false;
+let isPlaying = false;
+let audioUnlocked = false;
+
+// ▶️ START / STOP
+function toggleCamera() {
+  if (!running) {
+    startCamera();
+  } else {
+    stopCamera();
+  }
+}
+
+// 📷 START CAMERA
+function startCamera() {
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment" }
+  }).then(s => {
+    stream = s;
+    video.srcObject = stream;
+
+    video.onloadedmetadata = () => {
+      video.play();
+      running = true;
+
+      btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+      btn.style.background = "red";
+      btn.classList.remove("pulse");
+
+      processFrame();
+    };
+  });
+}
+
+// ⛔ STOP CAMERA
+function stopCamera() {
+  running = false;
+
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+
+  video.srcObject = null;
+
+  statusBox.innerText = "Status: -";
+  nilaiText.innerText = "Nilai: -";
+
+  stopAlarm();
+
+  btn.innerHTML = '<i class="fas fa-play"></i> Start';
+  btn.style.background = "#2196f3";
+  btn.classList.add("pulse");
+}
+
+// 🔄 PROCESS FRAME
+function processFrame() {
+  if (!running) return;
+
+  if (video.videoWidth === 0) {
+    requestAnimationFrame(processFrame);
+    return;
+  }
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  ctx.drawImage(video, 0, 0);
+
+  const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  let total = 0;
+
+  for (let i = 0; i < frame.data.length; i += 4) {
+    const r = frame.data[i];
+    const g = frame.data[i+1];
+    const b = frame.data[i+2];
+
+    const gray = 0.299*r + 0.587*g + 0.114*b;
+    total += gray;
+  }
+
+  const mean = total / (frame.data.length / 4);
+
+  let status = "";
+  statusBox.className = "status-box";
+
+  if (mean > 150) {
+    status = "JERNIH";
+    statusBox.classList.add("jernih");
+    stopAlarm();
+  } 
+  else if (mean > 100) {
+    status = "SEDANG";
+    statusBox.classList.add("sedang");
+    stopAlarm();
+  } 
+  else {
+    status = "KERUH";
+    statusBox.classList.add("keruh");
+    playAlarm();
+  }
+
+  statusBox.innerText = "Status: " + status;
+  nilaiText.innerText = "Nilai: " + mean.toFixed(2);
+
+  requestAnimationFrame(processFrame);
+}
+
+// 🔊 AKTIFKAN AUDIO (WAJIB DI HP)
+function enableAudio() {
+  alarm.play().then(() => {
+    alarm.pause();
+    alarm.currentTime = 0;
+    audioUnlocked = true;
+    alert("Audio siap!");
+  }).catch(() => {
+    alert("Gagal aktifkan audio");
+  });
+}
+
+// 🔊 PLAY ALARM
+function playAlarm() {
+  if (!isPlaying && audioUnlocked) {
+    alarm.loop = true;
+    alarm.play().catch(()=>{});
+    isPlaying = true;
+  }
+}
+
+// 🔇 STOP ALARM
+function stopAlarm() {
+  alarm.pause();
+  alarm.currentTime = 0;
+  isPlaying = false;
+}
+
+// 🖼 BACKGROUND DARI GALERI
+function setBackground(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    document.body.style.backgroundImage = `url(${e.target.result})`;
+    document.body.style.backgroundSize = "cover";
+    document.body.style.backgroundPosition = "center";
+  };
+  reader.readAsDataURL(file);
+}
+</script>
+
+</body>
+</html>
